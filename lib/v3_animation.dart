@@ -1,4 +1,3 @@
-// main.dart
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 
@@ -25,7 +24,7 @@ class ParticleDemo extends StatelessWidget {
             StaticParticleCircle(
               size: 400,
               particleColor: Colors.black54,
-              particleCount: 7000,
+              particleCount: 8000,
               ringThickness: 100,
             ),
             SizedBox(height: 60),
@@ -91,21 +90,21 @@ class _StaticParticleCircleState extends State<StaticParticleCircle>
     )..repeat();
 
     _contractionController = AnimationController(
-      duration: const Duration(seconds: 2),
+      duration: const Duration(milliseconds: 1800),
       vsync: this,
     );
 
     _colorController = AnimationController(
-      duration: const Duration(seconds: 2),
+      duration: const Duration(milliseconds: 1800),
       vsync: this,
     );
 
     _explosionController = AnimationController(
-      duration: const Duration(seconds: 2),
+      duration: const Duration(milliseconds: 1200),
       vsync: this,
     );
 
-    _contractionAnimation = Tween<double>(begin: 1.0, end: 0.3).animate(
+    _contractionAnimation = Tween<double>(begin: 1.0, end: 0.7).animate(
       CurvedAnimation(parent: _contractionController, curve: Curves.easeInOut),
     );
 
@@ -156,28 +155,37 @@ class _StaticParticleCircleState extends State<StaticParticleCircle>
     return SizedBox(
       width: widget.size,
       height: widget.size,
-      child: AnimatedBuilder(
-        animation: Listenable.merge([
-          _rotationController,
-          _contractionController,
-          _explosionController,
-          _colorController,
-        ]),
-        builder: (context, child) {
-          return Transform.rotate(
-            angle: _rotationController.value * 2 * math.pi,
-            child: CustomPaint(
-              painter: ParticleRingPainter(
-                particleColor: _colorAnimation.value ?? widget.particleColor,
-                particleCount: widget.particleCount,
-                ringThickness: widget.ringThickness,
-                contractionFactor: _contractionAnimation.value,
-                explosionFactor: _explosionAnimation.value,
-                showCenter: !_hideCenterCard,
-              ),
-            ),
-          );
-        },
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          AnimatedBuilder(
+            animation: Listenable.merge([
+              _rotationController,
+              _contractionController,
+              _explosionController,
+              _colorController,
+            ]),
+            builder: (context, child) {
+              return Transform.rotate(
+                angle: _rotationController.value * 2 * math.pi,
+                child: CustomPaint(
+                  size: Size(widget.size, widget.size),
+                  painter: ParticleRingPainter(
+                    particleColor:
+                        _colorAnimation.value ?? widget.particleColor,
+                    particleCount: widget.particleCount,
+                    ringThickness: widget.ringThickness,
+                    contractionFactor: _contractionAnimation.value,
+                    explosionFactor: _explosionAnimation.value,
+                    showCenter: false,
+                  ),
+                ),
+              );
+            },
+          ),
+          if (!_hideCenterCard)
+            Image.asset('assets/images/icon.png', width: 80, height: 80),
+        ],
       ),
     );
   }
@@ -202,11 +210,12 @@ class ParticleRingPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (explosionFactor >= 1.5) return; // Skip painting if fully exploded
+    if (explosionFactor >= 1.5) return;
 
     final center = Offset(size.width / 2, size.height / 2);
     final baseOuterRadius = size.width * 0.4;
-    final baseInnerRadius = baseOuterRadius - ringThickness;
+    final baseInnerRadius = baseOuterRadius - ringThickness * 0.8;
+
     final effectiveFactor = contractionFactor + explosionFactor;
 
     final outerRadius = baseOuterRadius * effectiveFactor;
@@ -241,31 +250,11 @@ class ParticleRingPainter extends CustomPainter {
 
       canvas.drawCircle(Offset(x, y), particleSize, paint);
     }
-
-    if (showCenter && contractionFactor == 1.0 && explosionFactor == 0.0) {
-      _drawCenterSquare(canvas, center);
-    }
   }
 
   double _generateRadiusWithFalloff(math.Random random) {
     return (random.nextDouble() + random.nextDouble() + random.nextDouble()) /
         3;
-  }
-
-  void _drawCenterSquare(Canvas canvas, Offset center) {
-    final squarePaint = Paint()
-      ..color = Colors.grey.shade300.withOpacity(0.6)
-      ..style = PaintingStyle.fill;
-
-    final squareSize = 60.0;
-    final rect = Rect.fromCenter(
-      center: center,
-      width: squareSize,
-      height: squareSize,
-    );
-
-    final rRect = RRect.fromRectAndRadius(rect, const Radius.circular(8));
-    canvas.drawRRect(rRect, squarePaint);
   }
 
   @override
