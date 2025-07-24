@@ -1,4 +1,7 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'dart:math' as math;
 
 void main() {
@@ -120,7 +123,7 @@ class _StaticParticleCircleState extends State<StaticParticleCircle>
     super.initState();
 
     _rotationController = AnimationController(
-      duration: const Duration(seconds: 20),
+      duration: const Duration(seconds: 5),
       vsync: this,
     )..repeat();
 
@@ -243,34 +246,16 @@ class _StaticParticleCircleState extends State<StaticParticleCircle>
             },
           ),
           if (!_hideCenterCard)
-            AnimatedBuilder(
-              animation: _imageFadeController,
-              builder: (context, child) {
-                return Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    // Black icon (fading out)
-                    Opacity(
-                      opacity: 1.0 - _imageFadeAnimation.value,
-                      child: Image.asset(
-                        'assets/images/icon_black.png',
-                        width: 150,
-                        height: 150,
-                      ),
-                    ),
-                    // Blue icon (fading in)
-                    Opacity(
-                      opacity: _imageFadeAnimation.value,
-                      child: Image.asset(
-                        'assets/images/icon_blue.png',
-                        width: 150,
-                        height: 150,
-                      ),
-                    ),
-                  ],
-                );
+            DisintegratingImage(
+              size: 150,
+              containerSize:
+                  widget.size, // Pass container size for boundary calculation
+              assetPath: 'assets/images/icon_blue.png',
+              onDisintegrationComplete: () {
+                // Optional callback when disintegration ends
               },
             ),
+
           if (_showTick)
             const Icon(Icons.check_circle, size: 80, color: Colors.green),
         ],
@@ -342,7 +327,7 @@ class ParticleRingPainter extends CustomPainter {
       final dynamicOpacity = (opacity * (1 - explosionFactor)).clamp(0.0, 1.0);
 
       final paint = Paint()
-        ..color = particleColor.withOpacity(dynamicOpacity)
+        ..color = particleColor.withValues(alpha: dynamicOpacity)
         ..style = PaintingStyle.fill;
 
       canvas.drawCircle(Offset(x, y), particleSize, paint);
@@ -362,5 +347,222 @@ class ParticleRingPainter extends CustomPainter {
         oldDelegate.contractionFactor != contractionFactor ||
         oldDelegate.explosionFactor != explosionFactor ||
         oldDelegate.showCenter != showCenter;
+  }
+}
+
+class DisintegratingImage extends StatefulWidget {
+  final double size;
+  final double containerSize; // Add container size for boundary calculation
+  final String assetPath;
+  final VoidCallback? onDisintegrationComplete;
+
+  const DisintegratingImage({
+    super.key,
+    required this.size,
+    required this.containerSize,
+    required this.assetPath,
+    this.onDisintegrationComplete,
+  });
+
+  @override
+  State<DisintegratingImage> createState() => _DisintegratingImageState();
+}
+
+class _DisintegratingImageState extends State<DisintegratingImage>
+    with SingleTickerProviderStateMixin {
+  final GlobalKey _key = GlobalKey();
+  ui.Image? _image;
+  late AnimationController _controller;
+  List<Particle>? _particles;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller =
+        AnimationController(duration: Duration(seconds: 2), vsync: this)
+          ..addListener(() => setState(() {}))
+          ..addStatusListener((status) {
+            if (status == AnimationStatus.completed) {
+              widget.onDisintegrationComplete?.call();
+            }
+          });
+
+    Future.delayed(Duration(milliseconds: 800), () {
+      _captureAndGenerateParticles();
+    });
+  }
+
+  Future<void> _captureAndGenerateParticles() async {
+    RenderRepaintBoundary boundary =
+        _key.currentContext!.findRenderObject() as RenderRepaintBoundary;
+    _image = await boundary.toImage(pixelRatio: 1);
+    final byteData = await _image!.toByteData(
+      format: ui.ImageByteFormat.rawRgba,
+    );
+    final width = _image!.width;
+    final height = _image!.height;
+
+    final pixels = byteData!.buffer.asUint8List();
+    final random = math.Random();
+    final tempParticles = <Particle>[];
+
+    // Calculate the circular boundary
+    final boundaryRadius =
+        widget.containerSize * 0.4; // Match the ring boundary
+    final center = Offset(widget.size / 2, widget.size / 2);
+
+    for (int y = 0; y < height; y += 2) {
+      for (int x = 0; x < width; x += 2) {
+        final index = (y * width + x) * 4;
+        if (index + 3 >= pixels.length) continue;
+        final r = pixels[index];
+        final g = pixels[index + 1];
+        final b = pixels[index + 2];
+        final a = pixels[index + 3];
+
+        if (a > 0) {
+          final color = Color.fromARGB(a, r, g, b);
+
+          // Generate direction that prefers staying within bounds
+          double dirX, dirY;
+          final pixelPos = Offset(x.toDouble(), y.toDouble());
+          final distanceFromCenter = (pixelPos - center).distance;
+
+          if (distanceFromCenter < boundaryRadius * 0.3) {
+            // Close to center - can move in any direction
+            dirX = random.nextDouble() * 2 - 1;
+            dirY = random.nextDouble() * 2 - 1;
+          } else {
+            // Near edge - bias movement towards center
+            final angleToCenter = math.atan2(center.dy - y, center.dx - x);
+            final randomAngle =
+                angleToCenter + (random.nextDouble() - 0.5) * math.pi * 0.5;
+            dirX = math.cos(randomAngle);
+            dirY = math.sin(randomAngle);
+          }
+
+          tempParticles.add(
+            Particle(
+              position: pixelPos,
+              color: color,
+              direction: Offset(dirX, dirY),
+              speed: random.nextDouble() * 1.5 + 0.5, // Reduced speed
+              boundaryRadius: boundaryRadius,
+              center: center,
+            ),
+          );
+        }
+      }
+    }
+
+    setState(() {
+      _particles = tempParticles;
+    });
+    _controller.forward();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_particles != null) {
+      return CustomPaint(
+        size: Size(widget.size, widget.size),
+        painter: ParticlePainter(
+          particles: _particles!,
+          progress: _controller.value,
+        ),
+      );
+    }
+
+    return RepaintBoundary(
+      key: _key,
+      child: Image.asset(
+        widget.assetPath,
+        width: widget.size,
+        height: widget.size,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+}
+
+class Particle {
+  Offset position;
+  final Color color;
+  Offset direction;
+  final double speed;
+  final double boundaryRadius;
+  final Offset center;
+  double opacity;
+
+  Particle({
+    required this.position,
+    required this.color,
+    required this.direction,
+    required this.speed,
+    required this.boundaryRadius,
+    required this.center,
+    this.opacity = 1.0,
+  });
+
+  void update(double progress) {
+    // Update position
+    final movement = direction * speed * progress * 50;
+    position = position + movement;
+
+    // Check boundary collision and reflect
+    final distanceFromCenter = (position - center).distance;
+    if (distanceFromCenter > boundaryRadius) {
+      // Calculate reflection
+      final vectorToCenter = center - position;
+      final normalizedToCenter = vectorToCenter / vectorToCenter.distance;
+
+      // Reflect the direction
+      direction = normalizedToCenter * speed * 0.5; // Bounce towards center
+
+      // Move particle back inside boundary
+      position =
+          center + (position - center) * (boundaryRadius / distanceFromCenter);
+
+      // Reduce opacity when hitting boundary
+      opacity *= 0.8;
+    }
+
+    // Fade out over time
+    opacity = (1.0 - progress * 0.3).clamp(0.0, 1.0);
+  }
+}
+
+class ParticlePainter extends CustomPainter {
+  final List<Particle> particles;
+  final double progress;
+
+  ParticlePainter({required this.particles, required this.progress});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final particle in particles) {
+      // Update particle position with boundary constraints
+      particle.update(progress);
+
+      final paint = Paint()
+        ..color = particle.color.withValues(alpha: particle.opacity)
+        ..style = PaintingStyle.fill;
+
+      canvas.drawCircle(
+        particle.position,
+        1.5 * (1 - progress * 0.3), // Particles shrink over time
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant ParticlePainter oldDelegate) {
+    return oldDelegate.progress != progress;
   }
 }
