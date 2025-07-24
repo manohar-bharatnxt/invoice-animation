@@ -120,49 +120,50 @@ class _StaticParticleCircleState extends State<StaticParticleCircle>
   bool _showAssetImage = true;
   bool _showImageParticles = false;
   bool _showTick = false;
+  bool _particlesBlended = false;
   List<ImageParticle> _imageParticles = [];
 
   @override
   void initState() {
     super.initState();
 
-    // Rotation controller - runs for exactly 4 seconds
     _rotationController = AnimationController(
       duration: const Duration(seconds: 4),
       vsync: this,
     );
 
-    // Disintegration controller - runs for 4 seconds (same as rotation)
-    _disintegrationController = AnimationController(
-      duration: const Duration(seconds: 4),
-      vsync: this,
-    );
+    _disintegrationController =
+        AnimationController(
+          duration: const Duration(seconds: 4),
+          vsync: this,
+        )..addListener(() {
+          // Check if particles have blended (around 70% of disintegration)
+          if (!_particlesBlended && _disintegrationController.value > 0.7) {
+            _particlesBlended = true;
+            _rotationController.stop(); // Stop rotation when particles blend
+          }
+        });
 
-    // Filling controller - runs for 4 seconds
     _fillingController = AnimationController(
       duration: const Duration(seconds: 4),
       vsync: this,
     );
 
-    // Contraction controller - runs for 4 seconds
     _contractionController = AnimationController(
       duration: const Duration(seconds: 4),
       vsync: this,
     );
 
-    // Color controller - runs for 4 seconds
     _colorController = AnimationController(
       duration: const Duration(seconds: 4),
       vsync: this,
     );
 
-    // Explosion controller - runs for 2 seconds (total animation time = 6 seconds)
     _explosionController = AnimationController(
       duration: const Duration(seconds: 2),
       vsync: this,
     );
 
-    // Animation definitions
     _disintegrationAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _disintegrationController,
@@ -203,11 +204,12 @@ class _StaticParticleCircleState extends State<StaticParticleCircle>
         _showImageParticles = true;
       });
 
-      // Start formation animations
+      // Start all animations
       _rotationController.forward();
       _contractionController.forward();
       _colorController.forward();
       _disintegrationController.forward();
+      _fillingController.forward();
 
       await Future.delayed(const Duration(milliseconds: 800));
       if (mounted) {
@@ -216,17 +218,10 @@ class _StaticParticleCircleState extends State<StaticParticleCircle>
         });
       }
 
-      await Future.delayed(const Duration(milliseconds: 200));
-      if (mounted) {
-        _fillingController.forward();
-      }
-
-      // Wait for the full 4-second formation to complete
-      await Future.delayed(const Duration(milliseconds: 3000));
+      // Wait for animations to complete
+      await Future.delayed(const Duration(milliseconds: 3200));
 
       if (mounted) {
-        // Stop rotation after 4 seconds
-        _rotationController.stop();
         _explosionController.forward();
 
         await Future.delayed(const Duration(milliseconds: 800));
@@ -441,7 +436,6 @@ class ImageParticle {
     double contractionFactor,
   ) {
     if (explosionProgress > 0) {
-      // Use the same explosion distance calculation as ring particles
       final baseDistance = targetDistance * contractionFactor;
       final explosionDistance = explosionProgress * 400;
       return center + direction * (baseDistance + explosionDistance);
@@ -506,7 +500,6 @@ class RingParticlePainter extends CustomPainter {
       final radius =
           minRadius + (normalizedRadius * (currentOuterRadius - minRadius));
 
-      // Apply the same explosion calculation as image particles
       final explosionOffset = explosionFactor * 400;
       final x = center.dx + math.cos(angle) * (radius + explosionOffset);
       final y = center.dy + math.sin(angle) * (radius + explosionOffset);
